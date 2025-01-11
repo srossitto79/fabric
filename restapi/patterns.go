@@ -1,6 +1,7 @@
 package restapi
 
 import (
+	"strconv"
 	"bufio"
 	"log"
 	"net/http"
@@ -16,6 +17,8 @@ type ExecuteRequest struct {
 	Input   string `json:"input"`
 	Stream  bool   `json:"stream"`
 	Youtube bool   `json:"youtube"`
+	Model   string `json:"model,omitempty"`
+	ContextLength int `json:"context_length,omitempty"`
 }
 
 type ExecuteResponse struct {
@@ -39,7 +42,7 @@ func NewPatternsHandler(r *gin.Engine, patterns *fsdb.PatternsEntity) (ret *Patt
 func (h *PatternsHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	variables := make(map[string]string)
-	pattern, err := h.patterns.GetApplyVariables(name, variables)
+	pattern, err := h.patterns.GetApplyVariables(name, variables, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, err.Error())
 		return
@@ -70,6 +73,12 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 					args = append(args, "--stream")
 				}
 			}
+			if req.Model != "" {
+				args = append(args, "--model="+req.Model)
+			}
+			if req.ContextLength > 0 {
+				args = append(args, "--modelContextLength="+strconv.Itoa(req.ContextLength))
+			}
 			cmd = exec.Command("/fabric", args...)
 		} else {
 			// For non-YouTube URLs, use wget pipeline
@@ -77,6 +86,12 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 			fabricArgs := []string{"--pattern", name}
 			if req.Stream {
 				fabricArgs = append(fabricArgs, "--stream")
+			}
+			if req.Model != "" {
+				fabricArgs = append(fabricArgs, "--model="+req.Model)
+			}
+			if req.ContextLength > 0 {
+				fabricArgs = append(fabricArgs, "--modelContextLength="+string(req.ContextLength))
 			}
 			cmd = exec.Command("/fabric", fabricArgs...)
 
@@ -94,6 +109,12 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 		fabricArgs := []string{"--pattern", name}
 		if req.Stream {
 			fabricArgs = append(fabricArgs, "--stream")
+		}
+		if req.Model != "" {
+			fabricArgs = append(fabricArgs, "--model="+req.Model)
+		}
+		if req.ContextLength > 0 {
+			fabricArgs = append(fabricArgs, "--modelContextLength="+string(req.ContextLength))
 		}
 		cmd = exec.Command("/fabric", fabricArgs...)
 		cmd.Stdin = strings.NewReader(req.Input)
