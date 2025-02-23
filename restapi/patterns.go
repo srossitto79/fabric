@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"github.com/PuerkitoBio/goquery"
+	"io"
+	"time"
 
 	"github.com/danielmiessler/fabric/plugins/db/fsdb"
 	"github.com/gin-gonic/gin"
@@ -61,7 +64,6 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 	}
 
 	var cmd *exec.Cmd
-	var wgetCmd *exec.Cmd
 
 	// Prepare command based on input type and flags
 	if strings.HasPrefix(req.Input, "http://") || strings.HasPrefix(req.Input, "https://") {
@@ -77,12 +79,25 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 				args = append(args, "--model="+req.Model)
 			}
 			if req.ContextLength > 0 {
-				args = append(args, "--modelContextLength="+strconv.Itoa(req.ContextLength))
+				args = append(args, "--modelContextLength="+strconv.Itoa(req.ContextLength))			
 			}
 			cmd = exec.Command("/fabric", args...)
 		} else {
-			// For non-YouTube URLs, use wget pipeline
-			wgetCmd = exec.Command("wget", "-qO-", req.Input)
+			// For non-YouTube URLs, use getWebContent function
+			content, err := getWebContent(req.Input)
+			if err != nil {
+				log.Printf("Error fetching content: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			// Create pipe for fabric command
+			pipeReader, pipeWriter := io.Pipe()
+			go func() {
+				defer pipeWriter.Close()
+				io.WriteString(pipeWriter, content)
+			}()
+
 			fabricArgs := []string{"--pattern", name}
 			if req.Stream {
 				fabricArgs = append(fabricArgs, "--stream")
@@ -91,18 +106,10 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 				fabricArgs = append(fabricArgs, "--model="+req.Model)
 			}
 			if req.ContextLength > 0 {
-				fabricArgs = append(fabricArgs, "--modelContextLength="+string(req.ContextLength))
+				fabricArgs = append(fabricArgs, "--modelContextLength="+strconv.Itoa(req.ContextLength))			
 			}
 			cmd = exec.Command("/fabric", fabricArgs...)
-
-			// Set up pipe between commands
-			var err error
-			cmd.Stdin, err = wgetCmd.StdoutPipe()
-			if err != nil {
-				log.Printf("Error creating pipe: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
+			cmd.Stdin = pipeReader
 		}
 	} else {
 		// Direct content input
@@ -114,16 +121,13 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 			fabricArgs = append(fabricArgs, "--model="+req.Model)
 		}
 		if req.ContextLength > 0 {
-			fabricArgs = append(fabricArgs, "--modelContextLength="+string(req.ContextLength))
+			fabricArgs = append(fabricArgs, "--modelContextLength="+strconv.Itoa(req.ContextLength))			
 		}
 		cmd = exec.Command("/fabric", fabricArgs...)
 		cmd.Stdin = strings.NewReader(req.Input)
 	}
 
 	log.Printf("Executing command: %v", cmd.Args)
-	if wgetCmd != nil {
-		log.Printf("With wget command: %v", wgetCmd.Args)
-	}
 
 	if req.Stream {
 		// Set required headers for SSE
@@ -147,15 +151,6 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 			log.Printf("Error creating stderr pipe: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
-		}
-
-		// Start wget if it exists
-		if wgetCmd != nil {
-			if err := wgetCmd.Start(); err != nil {
-				log.Printf("Error starting wget: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
 		}
 
 		if err := cmd.Start(); err != nil {
@@ -199,13 +194,6 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 			c.Writer.Flush()
 		}
 
-		// Wait for wget completion if it exists
-		if wgetCmd != nil {
-			if err := wgetCmd.Wait(); err != nil {
-				log.Printf("Wget command failed: %v", err)
-			}
-		}
-
 		// Wait for streaming to complete
 		<-done
 
@@ -214,15 +202,6 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 		var output []byte
 		var err error
 
-		// Start wget if it exists
-		if wgetCmd != nil {
-			if err := wgetCmd.Start(); err != nil {
-				log.Printf("Error starting wget: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-		}
-
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			log.Printf("Command failed: %v\nOutput: %s", err, string(output))
@@ -230,15 +209,44 @@ func (h *PatternsHandler) Execute(c *gin.Context) {
 			return
 		}
 
-		// Wait for wget completion if it exists
-		if wgetCmd != nil {
-			if err := wgetCmd.Wait(); err != nil {
-				log.Printf("Wget command failed: %v", err)
-			}
-		}
-
 		c.JSON(http.StatusOK, ExecuteResponse{
 			Content: string(output),
 		})
 	}
+}
+
+func getWebContent(url string) (string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	contentType := resp.Header.Get("Content-Type")
+	
+	// Handle HTML content
+	if strings.Contains(contentType, "text/html") {
+		doc, err := goquery.NewDocumentFromReader(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		
+		// Remove unwanted elements
+		doc.Find("script,style,nav,header,footer").Remove()
+		
+		// Extract text content
+		return strings.TrimSpace(doc.Find("body").Text()), nil
+	}
+	
+	// Handle plain text content
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	
+	return string(content), nil
 }
