@@ -35,9 +35,10 @@ type PatternsHandler struct {
 
 func NewPatternsHandler(r *gin.Engine, patterns *fsdb.PatternsEntity) (ret *PatternsHandler) {
 	ret = &PatternsHandler{
-		StorageHandler: NewStorageHandler[fsdb.Pattern](r, "patterns", patterns),
-		patterns:       patterns,
-	}
+		StorageHandler: NewStorageHandler(r, "patterns", patterns), patterns: patterns}
+
+	// TODO: Add custom, replacement routes here
+	//r.GET("/patterns/:name", ret.Get)
 	r.POST("/patterns/:name/execute", ret.Execute)
 	return
 }
