@@ -5,6 +5,7 @@ go 1.23
 toolchain go1.23.1
 
 require (
+	github.com/PuerkitoBio/goquery v1.10.1
 	github.com/anaskhan96/soup v1.2.5
 	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.4
 	github.com/atotto/clipboard v0.1.4
@@ -37,7 +38,6 @@ require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.2 // indirect
-	github.com/PuerkitoBio/goquery v1.10.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/bytedance/sonic v1.12.4 // indirect
