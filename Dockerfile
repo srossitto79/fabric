@@ -28,7 +28,7 @@ COPY patterns /patterns
 # Ensure clean config directory and copy ENV file
 RUN rm -rf /root/.config/fabric && \
     mkdir -p /root/.config/fabric
-COPY ENV /root/.config/fabric/.env
+#COPY ENV /root/.config/fabric/.env
 
 # Add debug commands
 RUN ls -la /root/.config/fabric/
