@@ -10,12 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/danielmiessler/fabric/common"
 	"github.com/jessevdk/go-flags"
 	goopenai "github.com/sashabaranov/go-openai"
 	"golang.org/x/text/language"
 	"gopkg.in/yaml.v2"
-
-	"github.com/danielmiessler/fabric/common"
 )
 
 // Flags create flags struct. the users flags go into this, this will be passed to the chat struct in cli
@@ -115,14 +114,14 @@ func Init() (ret *Flags, err error) {
 	parser := flags.NewParser(ret, flags.Default)
 	var args []string
 	if args, err = parser.Parse(); err != nil {
-		return nil, err
+		return
 	}
 
 	// If config specified, load and apply YAML for unused flags
 	if ret.Config != "" {
-		yamlFlags, err := loadYAMLConfig(ret.Config)
-		if err != nil {
-			return nil, err
+		var yamlFlags *Flags
+		if yamlFlags, err = loadYAMLConfig(ret.Config); err != nil {
+			return
 		}
 
 		// Apply YAML values where CLI flags weren't used
@@ -153,6 +152,7 @@ func Init() (ret *Flags, err error) {
 	}
 
 	// Handle stdin and messages
+	// Handle stdin and messages
 	info, _ := os.Stdin.Stat()
 	pipedToStdin := (info.Mode() & os.ModeCharDevice) == 0
 
@@ -168,8 +168,7 @@ func Init() (ret *Flags, err error) {
 		}
 		ret.Message = AppendMessage(ret.Message, pipedMessage)
 	}
-
-	return ret, nil
+	return
 }
 
 func assignWithConversion(targetField, sourceField reflect.Value) error {
@@ -235,17 +234,19 @@ func readStdin() (ret string, err error) {
 	reader := bufio.NewReader(os.Stdin)
 	var sb strings.Builder
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
+		if line, readErr := reader.ReadString('\n'); readErr != nil {
+			if errors.Is(readErr, io.EOF) {
 				sb.WriteString(line)
 				break
 			}
-			return "", fmt.Errorf("error reading piped message from stdin: %w", err)
+			err = fmt.Errorf("error reading piped message from stdin: %w", readErr)
+			return
+		} else {
+			sb.WriteString(line)
 		}
-		sb.WriteString(line)
 	}
-	return sb.String(), nil
+	ret = sb.String()
+	return
 }
 
 func (o *Flags) BuildChatOptions() (ret *common.ChatOptions) {
